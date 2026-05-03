@@ -1,0 +1,5 @@
+numpy>=2.0
+pyobjc-core>=11
+pyobjc-framework-Cocoa>=11
+pyobjc-framework-Metal>=11
+pyobjc-framework-MetalPerformanceShaders>=11
