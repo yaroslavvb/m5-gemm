@@ -55,6 +55,29 @@ The replacement load is a coalesced cooperative copy: each thread of the threadg
 
 The `__attribute__((max_total_threads_per_threadgroup(SW*SW*32)))` hint on the kernel turned out to be the single biggest practical win: it lets the register allocator commit to the static threadgroup size and stops spilling.
 
+## Memory bandwidth — checking Apple's "+30%" claim
+
+Apple's [M5 launch newsroom](https://www.apple.com/newsroom/2025/10/apple-unleashes-m5-the-next-big-leap-in-ai-performance-for-apple-silicon/) says M5 has "nearly 30 percent" more memory bandwidth than M4. That figure is real but **applies to the base M5 only** — the Pro/Max tiers got a much smaller bump:
+
+| Tier | M4 → M5 bandwidth | Δ |
+|---|---|---:|
+| Base | 120 → 153 GB/s | **+27.5%** ≈ "nearly 30%" ✓ |
+| Pro | 273 → 307 GB/s | +12.5% |
+| Max | 546 → **614 GB/s** | +12.5% |
+
+(Pro/Max numbers from the [M5 Pro/Max newsroom](https://www.apple.com/newsroom/2026/03/apple-debuts-m5-pro-and-m5-max-to-supercharge-the-most-demanding-pro-workflows/), Mar 2026.)
+
+Empirical check via [`bandwidth.py`](bandwidth.py) (a STREAM-style copy/read kernel, sweeping buffer sizes through the L2 to defeat caches):
+
+```
+copy 4.00 GiB:  16.64 ms  ->  516.1 GB/s  (read+write)
+read 4.00 GiB:   8.68 ms  ->  494.8 GB/s  (read only)
+```
+
+That's ~84% of Apple's 614 GB/s spec — the typical achievable fraction for unified-memory streaming. The spec is consistent with what the GPU can actually pull through.
+
+Implication for our GEMM: at 4096² we move ~64 MiB of A+B+C per dispatch and finish in ~10 ms — that's ~6 GB/s of *required* memory traffic, ~85× below the bandwidth ceiling. We're solidly compute-bound, which is why tile reuse via threadgroup memory matters so much. On a base **M5**, the +30% bandwidth would only show up in kernels with poor reuse (e.g. very small tiles or memcpy-heavy workloads).
+
 ## Things that did **not** help
 
 * `xcrun metal -O3 -ffast-math` produced bit-identical performance to runtime compilation — Apple's runtime path uses the same backend.
@@ -97,6 +120,7 @@ Without the Metal Toolchain, drop `--offline` — runtime compilation goes throu
 | `mps_matmul.py` | Reference benchmark via `MPSMatrixMultiplication`. |
 | `matmul.py` | Bench harness — single dim, sweep, or offline mode. |
 | `async_copy.py` | Original `simdgroup_async_copy` microbench — exits with a clear error on Metal 4. |
+| `bandwidth.metal` / `bandwidth.py` | STREAM-style copy/read probe for unified-memory bandwidth. |
 
 ## Compatibility notes from porting
 
